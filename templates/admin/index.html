@@ -1,0 +1,82 @@
+{% extends "admin/base_site.html" %}
+
+{% load i18n unfold %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+    <div class="flex flex-col gap-8">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {% for kpi in kpis %}
+                {% component "unfold/components/card.html" with href=kpi.href icon=kpi.icon %}
+                    {% component "unfold/components/text.html" %}
+                        {{ kpi.title }}
+                    {% endcomponent %}
+
+                    {% component "unfold/components/title.html" %}
+                        {{ kpi.value }}
+                    {% endcomponent %}
+
+                    {% component "unfold/components/text.html" with class="text-font-subtle-light dark:text-font-subtle-dark" %}
+                        {{ kpi.footer }}
+                    {% endcomponent %}
+                {% endcomponent %}
+            {% endfor %}
+        </div>
+
+        {% component "unfold/components/card.html" with title="Generations — last 14 days" %}
+            {% component "unfold/components/chart/bar.html" with data=chart_data height=320 %}{% endcomponent %}
+        {% endcomponent %}
+
+        <div class="flex flex-col gap-8 lg:flex-row">
+            <div class="grow">
+                {% component "unfold/components/card.html" with title="Latest generations" %}
+                    <div class="overflow-x-auto">
+                        <table class="border-spacing-none border-separate text-left text-sm w-full">
+                            <thead class="text-font-important-light dark:text-font-important-dark">
+                                <tr>
+                                    <th class="border-b border-base-200 font-semibold pb-3 pr-3 dark:border-base-800">Prompt</th>
+                                    <th class="border-b border-base-200 font-semibold pb-3 pr-3 dark:border-base-800">User</th>
+                                    <th class="border-b border-base-200 font-semibold pb-3 pr-3 dark:border-base-800">State</th>
+                                    <th class="border-b border-base-200 font-semibold pb-3 dark:border-base-800">Created</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for task in recent_tasks %}
+                                    <tr>
+                                        <td class="border-b border-base-200 py-3 pr-3 dark:border-base-800">
+                                            <a class="hover:underline" href="{% url 'admin:bot_generationtask_change' task.pk %}">{{ task.short_prompt }}</a>
+                                        </td>
+                                        <td class="border-b border-base-200 py-3 pr-3 dark:border-base-800">{{ task.user.display_name|default:"—" }}</td>
+                                        <td class="border-b border-base-200 py-3 pr-3 dark:border-base-800">
+                                            {% if task.state == "success" %}
+                                                {% component "unfold/helpers/label.html" with variant="success" text=task.get_state_display %}{% endcomponent %}
+                                            {% elif task.state == "fail" %}
+                                                {% component "unfold/helpers/label.html" with variant="danger" text=task.get_state_display %}{% endcomponent %}
+                                            {% else %}
+                                                {% component "unfold/helpers/label.html" with variant="info" text=task.get_state_display %}{% endcomponent %}
+                                            {% endif %}
+                                        </td>
+                                        <td class="border-b border-base-200 py-3 dark:border-base-800">{{ task.created_at|date:"d M Y H:i" }}</td>
+                                    </tr>
+                                {% empty %}
+                                    <tr>
+                                        <td class="py-3 text-font-subtle-light dark:text-font-subtle-dark" colspan="4">
+                                            No generations yet — send a prompt to the bot.
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endcomponent %}
+            </div>
+
+            <div class="lg:w-80 shrink-0">
+                {% component "unfold/components/card.html" with title="Applications" %}
+                    {% include "unfold/helpers/app_list_default.html" %}
+                {% endcomponent %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
