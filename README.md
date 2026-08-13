@@ -5,6 +5,8 @@ backed by a Django project with an [Unfold](https://unfoldadmin.com) admin dashb
 
 - **aiogram 3** — long-polling bot, run as a Django management command
 - **Trilingual** — Uzbek (default), Russian and English, picked per user
+- **Private by default** — prompts and generated images are encrypted at rest and are
+  never shown in the admin
 - **Django ORM** — Telegram users and generation jobs are persisted, so pending jobs survive a restart
 - **django-unfold** — dashboard with KPIs, a 14-day chart, image previews and per-user access control
 - **python-decouple** — all configuration comes from `.env`
@@ -18,7 +20,9 @@ core/            Django project (settings, urls, dashboard callback)
 bot/
   models.py      TelegramUser, GenerationTask
   admin.py       Unfold admin
-  i18n.py        uz / ru / en string catalogue
+  i18n.py        uz / ru / en string catalogue + error classification
+  crypto.py      Fernet encryption and keyed fingerprints
+  fields.py      EncryptedTextField
   services/
     image_service.py   Kie.ai API client
     telegram_bot.py    aiogram handlers + result poller
@@ -48,8 +52,15 @@ cp .env.example .env
 | `ADMIN_USER_ID` | Your Telegram user id — always has access |
 | `BOT_ALLOW_EVERYONE` | `True` to skip the allow-list entirely |
 | `BOT_POLL_INTERVAL` | Seconds between Kie.ai status checks |
+| `PROMPT_ENCRYPTION_KEY` | Encrypts prompts at rest — see below |
 | `KIE_API_KEY` | Kie.ai API key |
 | `KIE_MODEL` | Defaults to `google/nano-banana` |
+
+Mint an encryption key and paste it into `.env`:
+
+```bash
+python manage.py generate_encryption_key
+```
 
 Then migrate and create an admin account:
 
@@ -81,6 +92,37 @@ Uzbek) and stored on the user. It can be changed any time with `/language` or th
 All copy lives in [`bot/i18n.py`](bot/i18n.py) as a plain dict — add a language by adding a
 key to `TEXTS` and to `TelegramUser.Language`. Keyboard buttons are matched against every
 language at once, so a user who switches mid-session never gets a dead button.
+
+Upstream failures are translated too: `classify_error()` maps a raw Kie.ai message onto a
+short explanation in the user's language ("flagged as sensitive" → *try rewording your
+prompt*), while the original text is kept on the task and in the logs for staff.
+
+## Prompt privacy
+
+A prompt is the user's own content, and staff have no business reading it. So:
+
+- **Encrypted at rest.** `prompt` and `result_url` go through `EncryptedTextField`
+  (Fernet — AES-128-CBC with an HMAC), keyed by `PROMPT_ENCRYPTION_KEY`. A leaked
+  database dump or backup contains ciphertext only.
+- **Never rendered in the admin.** The changelist, the change form, the dashboard and
+  the inline all show `🔒 <length> chars · <fingerprint>`. There is no reveal button —
+  if you need to know what somebody asked for, ask them.
+- **Not in logs.** Handlers log the prompt's length, never its text, and upstream error
+  payloads are logged by code and message only.
+- **Not in `__str__`.** Django writes `str(obj)` verbatim into `django_admin_log`, so the
+  repr is built from the task id and length.
+- **Queries fail loudly.** Fernet tokens are non-deterministic, so `filter(prompt=…)`
+  could never match; the field raises `FieldError` instead of silently returning nothing.
+  Search by `task_id` or `prompt_fingerprint`.
+
+The fingerprint is an HMAC of the plaintext, so identical prompts share a fingerprint
+(handy for spotting a repeated request) while staying unrecoverable.
+
+> **Back up `PROMPT_ENCRYPTION_KEY` separately from the database.** Lose it and existing
+> prompts are gone for good; leak it next to a dump and the encryption bought you nothing.
+
+The generated image is a rendering of the prompt, so `result_url` is protected the same
+way and the admin no longer shows thumbnails.
 
 ## Access control
 

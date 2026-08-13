@@ -1,6 +1,8 @@
 from django.db import models
 from django.utils import timezone
 
+from bot.crypto import fingerprint
+from bot.fields import EncryptedTextField
 from bot.i18n import DEFAULT_LANGUAGE
 
 
@@ -75,7 +77,15 @@ class GenerationTask(models.Model):
         blank=True,
     )
     chat_id = models.BigIntegerField()
-    prompt = models.TextField()
+    # Private user content — encrypted at rest, never rendered in the admin.
+    prompt = EncryptedTextField()
+    prompt_fingerprint = models.CharField(
+        max_length=32,
+        blank=True,
+        db_index=True,
+        help_text="Keyed digest of the prompt — identifies a repeated prompt without revealing it.",
+    )
+    prompt_length = models.PositiveIntegerField(default=0)
     image_size = models.CharField(max_length=16, default="1:1")
     model = models.CharField(max_length=64, blank=True)
     state = models.CharField(
@@ -84,7 +94,8 @@ class GenerationTask(models.Model):
         default=State.WAITING,
         db_index=True,
     )
-    result_url = models.URLField(max_length=1024, blank=True)
+    # The generated image shows exactly what was asked for, so it is protected too.
+    result_url = EncryptedTextField(blank=True)
     fail_message = models.TextField(blank=True)
     delivered = models.BooleanField(
         default=False,
@@ -100,12 +111,20 @@ class GenerationTask(models.Model):
         ordering = ("-created_at",)
         indexes = [models.Index(fields=("state", "delivered"))]
 
+    def save(self, *args, **kwargs):
+        # Keep the non-revealing metadata in step with the prompt.
+        self.prompt_length = len(self.prompt or "")
+        self.prompt_fingerprint = fingerprint(self.prompt or "")
+        super().save(*args, **kwargs)
+
     def __str__(self) -> str:
-        return f"{self.task_id} — {self.short_prompt}"
+        # Never include the prompt: __str__ is written verbatim into django_admin_log.
+        return f"{self.task_id} ({self.prompt_length} chars)"
 
     @property
-    def short_prompt(self) -> str:
-        return self.prompt if len(self.prompt) <= 60 else f"{self.prompt[:57]}…"
+    def masked_prompt(self) -> str:
+        """What staff see instead of the prompt."""
+        return f"🔒 {self.prompt_length} chars · {self.prompt_fingerprint or '—'}"
 
     @property
     def is_pending(self) -> bool:

@@ -119,6 +119,10 @@ ADMIN_USER_ID = config("ADMIN_USER_ID", default=0, cast=int)
 BOT_ALLOW_EVERYONE = config("BOT_ALLOW_EVERYONE", default=False, cast=bool)
 BOT_POLL_INTERVAL = config("BOT_POLL_INTERVAL", default=3, cast=int)
 
+# Encrypts user prompts and result images at rest. Keep it out of version control and
+# back it up separately — losing it makes existing prompts unreadable forever.
+PROMPT_ENCRYPTION_KEY = config("PROMPT_ENCRYPTION_KEY", default="")
+
 KIE_API_KEY = config("KIE_API_KEY", default="")
 KIE_MODEL = config("KIE_MODEL", default="google/nano-banana")
 KIE_CALLBACK_URL = config("CALLBACK_URL", default="https://example.com/api/callback")

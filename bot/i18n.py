@@ -24,8 +24,25 @@ TEXTS: dict[str, dict[str, str]] = {
         "generating": "⏳ Generatsiya boshlandi…",
         "task_created": "✅ Vazifa yaratildi. Tayyor bo'lishi bilan rasmni yuboraman.",
         "done": "Tayyor! ✅",
-        "error": "❌ Xatolik: <code>{error}</code>",
-        "no_result_url": "❌ Tayyor, lekin natija havolasi kelmadi.",
+        "err_sensitive": (
+            "🚫 Bu so'rov bo'yicha rasm yaratilmadi — matn yoki natija taqiqlangan "
+            "mavzuga tegishli deb topildi.\n\nBoshqacha, yumshoqroq prompt yozib ko'ring."
+        ),
+        "err_rate_limit": (
+            "⏳ Hozir so'rovlar juda ko'p.\n\nBir-ikki daqiqadan so'ng qayta urinib ko'ring."
+        ),
+        "err_balance": (
+            "💳 Xizmat balansi tugagan, shuning uchun rasm yaratilmadi.\n\n"
+            "Iltimos, admin bilan bog'laning."
+        ),
+        "err_service": (
+            "🔌 Rasm yaratish xizmati javob bermayapti.\n\nBirozdan keyin qayta urinib ko'ring."
+        ),
+        "err_generic": (
+            "😕 Nimadir xato ketdi va rasm yaratilmadi.\n\nQayta urinib ko'ring — "
+            "takrorlansa, admin bilan bog'laning."
+        ),
+        "no_result_url": "😕 Rasm tayyor bo'ldi, lekin uni yuklab bo'lmadi. Qayta urinib ko'ring.",
         "denied": "⛔ Sizda ushbu botdan foydalanish huquqi yo'q!",
         "choose_language": "🌐 Tilni tanlang:",
         "language_set": "✅ Til o'zgartirildi.",
@@ -42,8 +59,25 @@ TEXTS: dict[str, dict[str, str]] = {
         "generating": "⏳ Запускаю генерацию…",
         "task_created": "✅ Задача создана. Как будет готово — пришлю изображение.",
         "done": "Готово! ✅",
-        "error": "❌ Ошибка: <code>{error}</code>",
-        "no_result_url": "❌ Готово, но не пришёл URL результата.",
+        "err_sensitive": (
+            "🚫 Изображение не создано — запрос или результат распознан как "
+            "запрещённая тема.\n\nПопробуйте сформулировать промпт иначе."
+        ),
+        "err_rate_limit": (
+            "⏳ Сейчас слишком много запросов.\n\nПопробуйте снова через пару минут."
+        ),
+        "err_balance": (
+            "💳 На сервисе закончился баланс, изображение не создано.\n\n"
+            "Пожалуйста, свяжитесь с админом."
+        ),
+        "err_service": (
+            "🔌 Сервис генерации не отвечает.\n\nПопробуйте ещё раз чуть позже."
+        ),
+        "err_generic": (
+            "😕 Что-то пошло не так, изображение не создано.\n\nПопробуйте ещё раз — "
+            "если повторится, свяжитесь с админом."
+        ),
+        "no_result_url": "😕 Изображение готово, но его не удалось загрузить. Попробуйте ещё раз.",
         "denied": "⛔ У вас нет доступа к этому боту!",
         "choose_language": "🌐 Выберите язык:",
         "language_set": "✅ Язык изменён.",
@@ -60,8 +94,25 @@ TEXTS: dict[str, dict[str, str]] = {
         "generating": "⏳ Starting generation…",
         "task_created": "✅ Task created. I'll send the image once it's ready.",
         "done": "Done! ✅",
-        "error": "❌ Error: <code>{error}</code>",
-        "no_result_url": "❌ Finished, but no result URL was returned.",
+        "err_sensitive": (
+            "🚫 No image was created — the request or the result was flagged as a "
+            "restricted topic.\n\nTry rewording your prompt."
+        ),
+        "err_rate_limit": (
+            "⏳ There are too many requests right now.\n\nPlease try again in a minute or two."
+        ),
+        "err_balance": (
+            "💳 The service is out of credit, so no image was created.\n\n"
+            "Please contact the admin."
+        ),
+        "err_service": (
+            "🔌 The image service is not responding.\n\nPlease try again shortly."
+        ),
+        "err_generic": (
+            "😕 Something went wrong and no image was created.\n\nPlease try again — "
+            "if it keeps happening, contact the admin."
+        ),
+        "no_result_url": "😕 The image was ready but could not be downloaded. Please try again.",
         "denied": "⛔ You don't have access to this bot!",
         "choose_language": "🌐 Choose your language:",
         "language_set": "✅ Language updated.",
@@ -71,6 +122,40 @@ TEXTS: dict[str, dict[str, str]] = {
 }
 
 LANGUAGES = tuple(TEXTS)
+
+# Raw upstream error text -> the message key the user actually sees. Checked in order,
+# so put the specific matches first. Everything unmatched falls back to "err_generic";
+# the original text is kept on the task and in the logs for staff.
+ERROR_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "err_sensitive",
+        (
+            "flagged as sensitive",
+            "sensitive",
+            "content policy",
+            "safety",
+            "prohibited",
+            "not allowed",
+            "nsfw",
+            "violat",
+        ),
+    ),
+    ("err_rate_limit", ("rate limit", "too many requests", "429", "concurren")),
+    ("err_balance", ("insufficient", "credit", "balance", "quota", "payment", "402")),
+    (
+        "err_service",
+        ("timeout", "timed out", "unavailable", "gateway", "502", "503", "504", "connection"),
+    ),
+)
+
+
+def classify_error(message: object) -> str:
+    """Map an upstream failure message onto a plain, user-facing explanation."""
+    text = str(message).lower()
+    for key, needles in ERROR_PATTERNS:
+        if any(needle in text for needle in needles):
+            return key
+    return "err_generic"
 
 
 def t(lang: str | None, key: str, **kwargs) -> str:

@@ -3,7 +3,6 @@ from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group, User
 from django.db.models import Count
-from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.filters.admin import (
     BooleanRadioFilter,
@@ -34,7 +33,7 @@ class GenerationTaskInline(TabularInline):
     model = GenerationTask
     extra = 0
     can_delete = False
-    fields = ("task_id", "short_prompt", "state", "created_at")
+    fields = ("task_id", "masked_prompt", "state", "created_at")
     readonly_fields = fields
     ordering = ("-created_at",)
     max_num = 0
@@ -113,30 +112,45 @@ class TelegramUserAdmin(ModelAdmin):
 
 @admin.register(GenerationTask)
 class GenerationTaskAdmin(ModelAdmin):
-    list_display = ("prompt_header", "state_badge", "user", "preview", "took", "created_at")
+    # The prompt and the resulting image are the user's private content: they are
+    # encrypted at rest and deliberately never rendered here. Ask the user instead.
+    list_display = ("task_header", "state_badge", "user", "prompt_size", "took", "created_at")
     list_filter = (
         ("state", ChoicesDropdownFilter),
         ("delivered", BooleanRadioFilter),
         ("created_at", RangeDateTimeFilter),
     )
     list_filter_submit = True
-    search_fields = ("task_id", "prompt", "user__username", "user__telegram_id")
+    search_fields = ("task_id", "prompt_fingerprint", "user__username", "user__telegram_id")
     autocomplete_fields = ("user",)
     date_hierarchy = "created_at"
     list_per_page = 25
+    exclude = ("prompt", "result_url")
     readonly_fields = (
         "task_id",
         "chat_id",
         "model",
-        "result_url",
-        "image_preview",
+        "masked_prompt",
+        "prompt_fingerprint",
+        "prompt_length",
+        "result_note",
         "created_at",
         "updated_at",
         "finished_at",
     )
     fieldsets = (
-        ("Request", {"fields": ("task_id", "user", "chat_id", "prompt", "image_size", "model")}),
-        ("Result", {"fields": ("state", "result_url", "image_preview", "fail_message", "delivered")}),
+        ("Request", {"fields": ("task_id", "user", "chat_id", "image_size", "model")}),
+        (
+            "Prompt (private)",
+            {
+                "fields": ("masked_prompt", "prompt_fingerprint", "prompt_length"),
+                "description": (
+                    "Prompts are encrypted at rest and are not shown here. "
+                    "If you need to know what was requested, ask the user."
+                ),
+            },
+        ),
+        ("Result", {"fields": ("state", "result_note", "fail_message", "delivered")}),
         (
             "Timestamps",
             {"fields": ("created_at", "updated_at", "finished_at"), "classes": ("collapse",)},
@@ -149,9 +163,9 @@ class GenerationTaskAdmin(ModelAdmin):
     def has_add_permission(self, request) -> bool:
         return False
 
-    @display(description="Prompt", header=True, ordering="prompt")
-    def prompt_header(self, obj: GenerationTask):
-        return obj.short_prompt, obj.task_id
+    @display(description="Task", header=True, ordering="task_id")
+    def task_header(self, obj: GenerationTask):
+        return obj.task_id, f"🔒 prompt hidden · {obj.prompt_fingerprint or '—'}"
 
     @display(
         description="State",
@@ -167,24 +181,20 @@ class GenerationTaskAdmin(ModelAdmin):
     def state_badge(self, obj: GenerationTask) -> str:
         return obj.get_state_display()
 
-    @display(description="Image")
-    def preview(self, obj: GenerationTask):
-        if not obj.result_url:
-            return "—"
-        return format_html(
-            '<img src="{}" style="height:40px;width:40px;border-radius:6px;object-fit:cover" />',
-            obj.result_url,
-        )
+    @display(description="Prompt")
+    def prompt_size(self, obj: GenerationTask) -> str:
+        return f"{obj.prompt_length} chars" if obj.prompt_length else "—"
 
-    @display(description="Preview")
-    def image_preview(self, obj: GenerationTask):
-        if not obj.result_url:
-            return "—"
-        return format_html(
-            '<a href="{0}" target="_blank" rel="noopener">'
-            '<img src="{0}" style="max-width:420px;border-radius:8px" /></a>',
-            obj.result_url,
-        )
+    @display(description="Masked prompt")
+    def masked_prompt(self, obj: GenerationTask) -> str:
+        return obj.masked_prompt
+
+    @display(description="Image")
+    def result_note(self, obj: GenerationTask) -> str:
+        # The generated image reveals the prompt, so it is encrypted and not previewed.
+        if obj.state == GenerationTask.State.SUCCESS:
+            return "🔒 Delivered to the user — stored encrypted, not shown here."
+        return "—"
 
     @display(description="Took", ordering="finished_at")
     def took(self, obj: GenerationTask) -> str:

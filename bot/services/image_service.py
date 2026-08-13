@@ -51,8 +51,10 @@ async def create_generation_task(prompt: str, image_size: str = "1:1") -> str:
     async with session.post(API_CREATE, json=payload) as resp:
         data = await resp.json()
         if resp.status != 200 or data.get("code") != 200:
-            logger.error("createTask failed: %s", data)
-            raise RuntimeError(f"CreateTask error: {data.get('msg') or data}")
+            # Log the status only — the response can echo back the user's prompt.
+            reason = data.get("msg") or f"HTTP {resp.status}"
+            logger.error("createTask failed: code=%s msg=%s", data.get("code"), reason)
+            raise RuntimeError(reason)
         return data["data"]["taskId"]
 
 

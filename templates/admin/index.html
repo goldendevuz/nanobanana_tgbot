@@ -45,7 +45,7 @@
                                 {% for task in recent_tasks %}
                                     <tr>
                                         <td class="border-b border-base-200 py-3 pr-3 dark:border-base-800">
-                                            <a class="hover:underline" href="{% url 'admin:bot_generationtask_change' task.pk %}">{{ task.short_prompt }}</a>
+                                            <a class="hover:underline" href="{% url 'admin:bot_generationtask_change' task.pk %}">{{ task.masked_prompt }}</a>
                                         </td>
                                         <td class="border-b border-base-200 py-3 pr-3 dark:border-base-800">{{ task.user.display_name|default:"—" }}</td>
                                         <td class="border-b border-base-200 py-3 pr-3 dark:border-base-800">

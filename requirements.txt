@@ -5,6 +5,7 @@ whitenoise==6.12.0
 dj-database-url==3.1.2
 aiogram==3.30.0
 aiohttp==3.14.3
+cryptography==50.0.0
 gunicorn==26.0.0
 
 # Uncomment when using PostgreSQL via DATABASE_URL

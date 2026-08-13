@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from html import escape
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.client.default import DefaultBotProperties
@@ -16,6 +15,7 @@ from bot.i18n import (
     DEFAULT_LANGUAGE,
     LANGUAGE_NAMES,
     LANGUAGES,
+    classify_error,
     detect_language,
     t,
     variants,
@@ -177,14 +177,13 @@ async def poll_tasks(bot: Bot) -> None:
                     finished_at=timezone.now(),
                     delivered=True,
                 )
-                await bot.send_message(
-                    task.chat_id, t(lang, "error", error=escape(fail_message))
-                )
+                # The user gets a plain explanation; the raw text stays on the task.
+                await bot.send_message(task.chat_id, t(lang, classify_error(fail_message)))
 
             elif state == GenerationTask.State.SUCCESS:
                 url = extract_result_url(data)
                 if url:
-                    logger.info("Task success task_id=%s url=%s", task.task_id, url)
+                    logger.info("Task success task_id=%s", task.task_id)
                     await update_task(
                         task,
                         state=GenerationTask.State.SUCCESS,
@@ -278,14 +277,15 @@ def setup(dp: Dispatcher) -> None:
             return await message.answer(t(lang, "empty_prompt"))
 
         WAITING_PROMPT.discard(user.telegram_id)
-        logger.info("Prompt received user_id=%s prompt=%r", user.telegram_id, text)
+        # Never log the prompt itself — it is the user's private content.
+        logger.info("Prompt received user_id=%s length=%s", user.telegram_id, len(text))
         await message.answer(t(lang, "generating"))
 
         try:
             task_id = await create_generation_task(prompt=text, image_size="1:1")
         except Exception as exc:
             logger.exception("create_generation_task failed user_id=%s", user.telegram_id)
-            return await message.answer(t(lang, "error", error=escape(str(exc))))
+            return await message.answer(t(lang, classify_error(exc)))
 
         await save_task(user, task_id, message.chat.id, text, "1:1")
         logger.info("Task created task_id=%s chat_id=%s", task_id, message.chat.id)
