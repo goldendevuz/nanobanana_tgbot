@@ -1,15 +1,34 @@
 from django.db import models
 from django.utils import timezone
 
+from bot.i18n import DEFAULT_LANGUAGE
+
 
 class TelegramUser(models.Model):
     """A Telegram account that has interacted with the bot."""
+
+    class Language(models.TextChoices):
+        UZ = "uz", "O'zbekcha"
+        RU = "ru", "Русский"
+        EN = "en", "English"
 
     telegram_id = models.BigIntegerField("Telegram ID", unique=True, db_index=True)
     username = models.CharField(max_length=64, blank=True)
     first_name = models.CharField(max_length=128, blank=True)
     last_name = models.CharField(max_length=128, blank=True)
-    language_code = models.CharField(max_length=16, blank=True)
+    language = models.CharField(
+        "Bot language",
+        max_length=2,
+        choices=Language.choices,
+        default=DEFAULT_LANGUAGE,
+        help_text="Language the bot replies in.",
+    )
+    language_code = models.CharField(
+        "Telegram locale",
+        max_length=16,
+        blank=True,
+        help_text="Raw locale reported by the Telegram client.",
+    )
     is_allowed = models.BooleanField(
         "Allowed",
         default=False,

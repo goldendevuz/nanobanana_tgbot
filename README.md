@@ -4,6 +4,7 @@ Telegram bot that generates images with the [Kie.ai](https://kie.ai) `google/nan
 backed by a Django project with an [Unfold](https://unfoldadmin.com) admin dashboard.
 
 - **aiogram 3** — long-polling bot, run as a Django management command
+- **Trilingual** — Uzbek (default), Russian and English, picked per user
 - **Django ORM** — Telegram users and generation jobs are persisted, so pending jobs survive a restart
 - **django-unfold** — dashboard with KPIs, a 14-day chart, image previews and per-user access control
 - **python-decouple** — all configuration comes from `.env`
@@ -17,6 +18,7 @@ core/            Django project (settings, urls, dashboard callback)
 bot/
   models.py      TelegramUser, GenerationTask
   admin.py       Unfold admin
+  i18n.py        uz / ru / en string catalogue
   services/
     image_service.py   Kie.ai API client
     telegram_bot.py    aiogram handlers + result poller
@@ -68,6 +70,17 @@ python manage.py runbot
 ```
 
 The admin lives at http://127.0.0.1:8000/admin/ (`/` redirects there).
+
+## Languages
+
+The bot speaks **Uzbek (default), Russian and English**. On first contact the language is
+guessed from the Telegram client locale (`ru-RU` → Russian, anything unsupported →
+Uzbek) and stored on the user. It can be changed any time with `/language` or the
+**🌐** keyboard button, and staff can override it from the admin.
+
+All copy lives in [`bot/i18n.py`](bot/i18n.py) as a plain dict — add a language by adding a
+key to `TEXTS` and to `TelegramUser.Language`. Keyboard buttons are matched against every
+language at once, so a user who switches mid-session never gets a dead button.
 
 ## Access control
 

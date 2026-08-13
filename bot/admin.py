@@ -12,6 +12,7 @@ from unfold.contrib.filters.admin import (
 )
 from unfold.decorators import display
 
+from bot.i18n import LANGUAGE_NAMES
 from bot.models import GenerationTask, TelegramUser
 
 # Restyle the built-in auth admin with Unfold.
@@ -45,8 +46,16 @@ class GenerationTaskInline(TabularInline):
 
 @admin.register(TelegramUser)
 class TelegramUserAdmin(ModelAdmin):
-    list_display = ("user_header", "telegram_id", "access_badge", "total_tasks", "last_seen_at")
+    list_display = (
+        "user_header",
+        "telegram_id",
+        "language_badge",
+        "access_badge",
+        "total_tasks",
+        "last_seen_at",
+    )
     list_filter = (
+        ("language", ChoicesDropdownFilter),
         ("is_allowed", BooleanRadioFilter),
         ("is_blocked", BooleanRadioFilter),
         ("created_at", RangeDateTimeFilter),
@@ -58,7 +67,8 @@ class TelegramUserAdmin(ModelAdmin):
     inlines = (GenerationTaskInline,)
     actions = ("allow_users", "block_users")
     fieldsets = (
-        ("Identity", {"fields": ("telegram_id", "username", "first_name", "last_name", "language_code")}),
+        ("Identity", {"fields": ("telegram_id", "username", "first_name", "last_name")}),
+        ("Language", {"fields": ("language", "language_code")}),
         ("Access", {"fields": ("is_allowed", "is_blocked")}),
         ("Timestamps", {"fields": ("created_at", "last_seen_at"), "classes": ("collapse",)}),
     )
@@ -81,6 +91,10 @@ class TelegramUserAdmin(ModelAdmin):
         if obj.is_blocked:
             return "Blocked"
         return "Allowed" if obj.is_allowed else "Pending"
+
+    @display(description="Language", ordering="language")
+    def language_badge(self, obj: TelegramUser) -> str:
+        return LANGUAGE_NAMES.get(obj.language, obj.get_language_display())
 
     @display(description="Generations", ordering="task_count")
     def total_tasks(self, obj: TelegramUser) -> int:
