@@ -125,7 +125,7 @@ class GenerationTaskAdmin(ModelAdmin):
     autocomplete_fields = ("user",)
     date_hierarchy = "created_at"
     list_per_page = 25
-    exclude = ("prompt", "result_url")
+    exclude = ("prompt", "result_url", "cleanup_message_ids")
     readonly_fields = (
         "task_id",
         "chat_id",

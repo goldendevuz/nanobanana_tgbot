@@ -101,6 +101,12 @@ class GenerationTask(models.Model):
         default=False,
         help_text="The result has been sent back to the Telegram chat.",
     )
+    cleanup_message_ids = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Interim chat messages to delete once the result is delivered. "
+        "Stored on the task so a restart still tidies the chat.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     finished_at = models.DateTimeField(null=True, blank=True)

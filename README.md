@@ -97,6 +97,14 @@ Upstream failures are translated too: `classify_error()` maps a raw Kie.ai messa
 short explanation in the user's language ("flagged as sensitive" → *try rewording your
 prompt*), while the original text is kept on the task and in the logs for staff.
 
+## Self-tidying chat
+
+The step-by-step messages ("tap the button", "write a prompt", "starting…", "task
+created") and the button press itself are deleted the moment the generation is
+answered, so the chat keeps only the user's prompt and the image (or the error). Their
+ids are collected per chat and written onto the task, so the sweep still happens if the
+bot restarts mid-generation.
+
 ## Prompt privacy
 
 A prompt is the user's own content, and staff have no business reading it. So:

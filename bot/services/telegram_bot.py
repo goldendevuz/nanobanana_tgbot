@@ -2,10 +2,12 @@
 
 import asyncio
 import logging
+from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -33,7 +35,15 @@ logger = logging.getLogger(__name__)
 # user ids the bot is currently expecting a prompt from
 WAITING_PROMPT: set[int] = set()
 
+# chat_id -> ids of the step-by-step messages ("write a prompt", "starting…") that are
+# swept away once the generation finishes, leaving just the request and its result.
+CLEANUP: dict[int, list[int]] = defaultdict(list)
+
 LANG_CALLBACK_PREFIX = "lang:"
+
+# Telegram deletes at most 100 messages per call, and a user who taps the button
+# without ever sending a prompt would otherwise grow this list forever.
+MAX_CLEANUP_MESSAGES = 100
 
 
 def main_menu(lang: str) -> types.ReplyKeyboardMarkup:
@@ -44,6 +54,34 @@ def main_menu(lang: str) -> types.ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
     )
+
+
+def remember(chat_id: int, *messages: types.Message | int | None) -> None:
+    """Mark interim messages for deletion once the generation is answered."""
+    for item in messages:
+        message_id = item.message_id if isinstance(item, types.Message) else item
+        if message_id:
+            CLEANUP[chat_id].append(message_id)
+    del CLEANUP[chat_id][:-MAX_CLEANUP_MESSAGES]
+
+
+async def sweep(bot: Bot, chat_id: int, message_ids: list[int]) -> None:
+    """Delete interim messages, tolerating ones Telegram will not remove."""
+    message_ids = [mid for mid in message_ids if mid]
+    if not message_ids:
+        return
+    try:
+        await bot.delete_messages(chat_id=chat_id, message_ids=message_ids)
+        return
+    except TelegramBadRequest:
+        # One bad id fails the whole batch (already gone, or older than 48h).
+        pass
+
+    for message_id in message_ids:
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except TelegramBadRequest:
+            logger.debug("Could not delete message %s in chat %s", message_id, chat_id)
 
 
 def language_keyboard() -> types.InlineKeyboardMarkup:
@@ -106,7 +144,14 @@ def set_language(user: TelegramUser, language: str) -> None:
 
 
 @sync_to_async
-def save_task(user: TelegramUser, task_id: str, chat_id: int, prompt: str, image_size: str) -> None:
+def save_task(
+    user: TelegramUser,
+    task_id: str,
+    chat_id: int,
+    prompt: str,
+    image_size: str,
+    cleanup_message_ids: list[int],
+) -> None:
     GenerationTask.objects.create(
         task_id=task_id,
         user=user,
@@ -114,6 +159,7 @@ def save_task(user: TelegramUser, task_id: str, chat_id: int, prompt: str, image
         prompt=prompt,
         image_size=image_size,
         model=settings.KIE_MODEL,
+        cleanup_message_ids=cleanup_message_ids,
     )
 
 
@@ -166,6 +212,10 @@ async def poll_tasks(bot: Bot) -> None:
                 if state != task.state:
                     await update_task(task, state=state)
                 continue
+
+            # The generation is settled: clear the step-by-step chatter first, so the
+            # user is left with their request and the answer to it.
+            await sweep(bot, task.chat_id, task.cleanup_message_ids)
 
             if state == GenerationTask.State.FAIL:
                 fail_message = data.get("failMsg") or "Unknown error"
@@ -259,7 +309,8 @@ def setup(dp: Dispatcher) -> None:
         if not has_access(user):
             return await deny(message, user)
         WAITING_PROMPT.add(user.telegram_id)
-        await message.answer(t(user.language, "ask_prompt"))
+        # The button press and the reply to it are both scaffolding.
+        remember(message.chat.id, message, await message.answer(t(user.language, "ask_prompt")))
 
     @dp.message(F.text)
     async def on_text(message: types.Message) -> None:
@@ -270,26 +321,31 @@ def setup(dp: Dispatcher) -> None:
         lang = user.language
         text = (message.text or "").strip()
 
+        chat_id = message.chat.id
+
         if user.telegram_id not in WAITING_PROMPT:
-            return await message.answer(t(lang, "use_button"), reply_markup=main_menu(lang))
+            nudge = await message.answer(t(lang, "use_button"), reply_markup=main_menu(lang))
+            return remember(chat_id, nudge)
 
         if not text:
-            return await message.answer(t(lang, "empty_prompt"))
+            return remember(chat_id, await message.answer(t(lang, "empty_prompt")))
 
         WAITING_PROMPT.discard(user.telegram_id)
         # Never log the prompt itself — it is the user's private content.
         logger.info("Prompt received user_id=%s length=%s", user.telegram_id, len(text))
-        await message.answer(t(lang, "generating"))
+        remember(chat_id, await message.answer(t(lang, "generating")))
 
         try:
             task_id = await create_generation_task(prompt=text, image_size="1:1")
         except Exception as exc:
             logger.exception("create_generation_task failed user_id=%s", user.telegram_id)
+            await sweep(message.bot, chat_id, CLEANUP.pop(chat_id, []))
             return await message.answer(t(lang, classify_error(exc)))
 
-        await save_task(user, task_id, message.chat.id, text, "1:1")
-        logger.info("Task created task_id=%s chat_id=%s", task_id, message.chat.id)
-        await message.answer(t(lang, "task_created"))
+        remember(chat_id, await message.answer(t(lang, "task_created")))
+        # Hand the ids to the task so the sweep survives a bot restart.
+        await save_task(user, task_id, chat_id, text, "1:1", CLEANUP.pop(chat_id, []))
+        logger.info("Task created task_id=%s chat_id=%s", task_id, chat_id)
 
 
 async def deny(message: types.Message, user: TelegramUser) -> None:
